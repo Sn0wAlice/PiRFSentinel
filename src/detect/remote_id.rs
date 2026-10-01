@@ -10,7 +10,7 @@ pub const MESSAGE_SIZE: usize = 25;
 const APP_CODE: u8 = 0x0D;
 
 /// Everything decoded so far for one aircraft; messages arrive one type at a time.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize)]
 pub struct Info {
     pub uas_id: Option<String>,
     pub id_type: Option<&'static str>,

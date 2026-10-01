@@ -23,10 +23,13 @@ BLE goes through BlueZ (D-Bus); WiFi runs `iw dev wlan0 scan -u` (as root, or vi
 | `--threshold` | `50` | confidence at which a match prints `ALERT` |
 | `--presets` | `global` | `global`, `canada`, `us` |
 | `--all-categories` | off | also network/home cameras |
-| `--list` | off | print every device heard (strongest first) with each 30 s status |
+| `--list` | off | table of every device heard (flagged first, then strongest), every 30 s |
+| `--json` | off | one JSON object per line on stdout (`alert`, `match`, `device` events), no UI |
 
+In a terminal you get a live status line (devices, adverts/s, flagged) with
+colored match blocks above it; `NO_COLOR`, pipes and journald get plain lines.
 Matches go to stdout (`ALERT` above threshold, once per device per 5 min; `match`
-otherwise, once per 30 s), status to stderr.
+otherwise, once per 30 s). Ctrl-C prints a summary.
 
 ```bash
 cargo test

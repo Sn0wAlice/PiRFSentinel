@@ -17,7 +17,7 @@ pub async fn run(tx: mpsc::Sender<Advert>) -> bluer::Result<()> {
         duplicate_data: true,
         ..Default::default()
     }).await?;
-    eprintln!("ble: scanning on {}", adapter.name());
+    crate::ui::note(&crate::ui::dim(&format!("  ble: scanning on {}", adapter.name())));
     let mut disco = adapter.discover_devices().await?;
     let mut changes = SelectAll::new();
     // One property stream per device; aborted when BlueZ forgets the device

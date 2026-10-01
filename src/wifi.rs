@@ -16,8 +16,8 @@ pub async fn run(iface: String, interval: Duration, tx: mpsc::Sender<Advert>) {
         let out = match cmd.args(["dev", &iface, "scan", "-u"]).output().await {
             Ok(o) if o.status.success() => o,
             // "Device or resource busy" happens when a scan is already running: just retry next tick.
-            Ok(o) => { eprintln!("wifi: iw failed: {}", String::from_utf8_lossy(&o.stderr).trim()); continue }
-            Err(e) => { eprintln!("wifi: cannot run iw: {e}"); return }
+            Ok(o) => { crate::ui::note(&format!("wifi: iw failed: {}", String::from_utf8_lossy(&o.stderr).trim())); continue }
+            Err(e) => { crate::ui::note(&format!("wifi: cannot run iw: {e}")); return }
         };
         for a in parse_iw(&String::from_utf8_lossy(&out.stdout), now_ms()) {
             if tx.send(a).await.is_err() {
