@@ -1,0 +1,41 @@
+# PiRFSentinel configuration: rfs --config FILE (the systemd unit uses
+# /etc/pirfsentinel.toml). Command-line flags override these values.
+
+# Name of this sensor in every event (default: hostname).
+sensor = "pi-lab"
+
+ble = true
+wifi = true
+iface = "wlan0"
+wifi_interval = 10          # seconds between WiFi scans
+
+threshold = 50              # confidence (0-100) at which a match becomes an alert
+presets = ["global"]        # global, canada, us
+all_categories = false      # also network / home cameras
+
+# HTTP API + live event stream (no auth: keep it on a trusted LAN or 127.0.0.1).
+listen = "0.0.0.0:8787"
+
+# SQLite history (events + every device ever seen).
+db = "/var/lib/pirfsentinel/pirf.db"
+retention_days = 30
+
+# Never flagged or alerted: your own devices, neighbours, ...
+# Exact MAC, IEEE block (AA:BB:CC, AA:BB:CC:D, AA:BB:CC:DD:E), "name:<text>" or "vendor:<text>".
+whitelist = [
+  "AA:BB:CC:DD:EE:FF",
+  "name:My AirPods",
+]
+
+# Your own watchlist entries, on top of the presets.
+[[watch]]
+prefix = "name:Penguin"
+label = "Flock camera seen on my street"
+score = 80                  # 0-100, default 100
+category = "ALPR"           # BODY_CAM, ALPR, AUDIO_SENSOR, PUBLIC_SAFETY, DRONE, TRACKER, GLASSES, NETWORK_CAMERA, CUSTOM
+
+# Push notifications. "text" suits ntfy.sh; "json" posts the event as is (webhooks, n8n, Home Assistant).
+[[notify]]
+url = "https://ntfy.sh/my-secret-topic"
+format = "text"
+events = ["alert"]          # any of: alert, match, device_new, device_lost, remote_id, error, status

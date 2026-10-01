@@ -10,26 +10,60 @@ patrol-vehicle clustering and Remote ID decoding. Receive-only.
 ```bash
 sudo apt install libdbus-1-dev iw
 cargo build --release
-./target/release/pirfsentinel --presets global,canada --threshold 50
+sudo install -m 755 target/release/pirfsentinel /usr/local/bin/rfs
+rfs --list
 ```
 
 BLE goes through BlueZ (D-Bus); WiFi runs `iw dev wlan0 scan -u` (as root, or via `sudo -n`).
 
-| Option | Default | |
-|---|---|---|
-| `--no-ble` / `--no-wifi` | both on | |
-| `--iface` | `wlan0` | WiFi interface |
-| `--wifi-interval` | `10` | seconds between WiFi scans |
-| `--threshold` | `50` | confidence at which a match prints `ALERT` |
-| `--presets` | `global` | `global`, `canada`, `us` |
-| `--all-categories` | off | also network/home cameras |
-| `--list` | off | table of every device heard (flagged first, then strongest), every 30 s |
-| `--json` | off | one JSON object per line on stdout (`alert`, `match`, `device` events), no UI |
+## Options
 
-In a terminal you get a live status line (devices, adverts/s, flagged) with
-colored match blocks above it; `NO_COLOR`, pipes and journald get plain lines.
-Matches go to stdout (`ALERT` above threshold, once per device per 5 min; `match`
-otherwise, once per 30 s). Ctrl-C prints a summary.
+Everything can live in a TOML file (`--config FILE`, see
+[pirfsentinel.example.toml](pirfsentinel.example.toml)); flags override it.
+
+| Flag | Config key | Default | |
+|---|---|---|---|
+| `--config FILE` | | | TOML config |
+| `--no-ble` / `--no-wifi` | `ble` / `wifi` | on | |
+| `--iface` | `iface` | `wlan0` | WiFi interface |
+| `--wifi-interval` | `wifi_interval` | `10` | seconds between WiFi scans |
+| `--threshold` | `threshold` | `50` | confidence at which a match becomes an alert |
+| `--presets` | `presets` | `global` | `global`, `canada`, `us` |
+| `--all-categories` | `all_categories` | off | also network/home cameras |
+| `--list` | `list` | off | device table every 30 s (`device` events in JSON mode) |
+| `--json` | `json` | off | one JSON event per line on stdout, no UI |
+| `--listen ADDR` | `listen` | off | HTTP API + SSE stream, e.g. `0.0.0.0:8787` (no auth) |
+| `--db FILE` | `db` | off | SQLite history |
+| `--sensor NAME` | `sensor` | hostname | name in every event |
+| | `retention_days` | `30` | database retention |
+| | `whitelist` | | MACs / blocks / `name:` / `vendor:` never flagged |
+| | `[[watch]]` | | your own watchlist entries |
+| | `[[notify]]` | | push to ntfy (`format = "text"`) or any webhook (`"json"`) |
+
+## Outputs
+
+- **Terminal:** banner, live status line, colored match blocks, `--list` table, summary on Ctrl-C.
+  Pipes, journald and `NO_COLOR` get plain lines.
+- **JSON events** (`--json`, `/stream`, `/events`, webhooks): one stable contract,
+  documented in [SCHEMA.md](SCHEMA.md). Real (anonymized) samples of every
+  output: [docs/EXAMPLES.md](docs/EXAMPLES.md).
+- **HTTP API:** `/health`, `/status`, `/devices`, `/events`, `/stream`.
+- **SQLite:** events and every device ever seen (`first_seen_ever`, "new" badge in `--list`).
+- **Notifications:** ntfy / webhooks, per event type.
+
+```bash
+curl -s localhost:8787/devices | jq '.[] | select(.hits | length > 0)'
+curl -N 'localhost:8787/stream?events=alert'
+```
+
+## Run as a service
+
+```bash
+sudo cp pirfsentinel.example.toml /etc/pirfsentinel.toml   # then edit it
+sudo cp deploy/pirfsentinel.service /etc/systemd/system/
+sudo systemctl enable --now pirfsentinel
+journalctl -u pirfsentinel -f
+```
 
 ```bash
 cargo test
@@ -37,5 +71,5 @@ cargo test
 
 ## Not ported yet
 
-GPS (followers, known ALPR map, traces), device identification of ordinary
-devices, storage/export, web UI, IMSI-catcher heuristics (needs a modem).
+GPS (followers, known ALPR map, traces), identification of ordinary devices,
+MQTT, IMSI-catcher heuristics (needs a modem).

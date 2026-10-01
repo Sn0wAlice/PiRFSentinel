@@ -139,19 +139,28 @@ pub enum Category {
 }
 
 impl Category {
+    pub const ALL: [Category; 9] = [
+        Self::BodyCam, Self::Alpr, Self::AudioSensor, Self::PublicSafety, Self::Drone,
+        Self::Tracker, Self::Glasses, Self::NetworkCamera, Self::Custom,
+    ];
+
     pub fn parse(s: &str) -> Option<Self> {
-        Some(match s.to_ascii_uppercase().as_str() {
-            "BODY_CAM" => Self::BodyCam,
-            "ALPR" => Self::Alpr,
-            "AUDIO_SENSOR" => Self::AudioSensor,
-            "PUBLIC_SAFETY" => Self::PublicSafety,
-            "DRONE" => Self::Drone,
-            "TRACKER" => Self::Tracker,
-            "GLASSES" => Self::Glasses,
-            "NETWORK_CAMERA" => Self::NetworkCamera,
-            "CUSTOM" => Self::Custom,
-            _ => return None,
-        })
+        Self::ALL.into_iter().find(|c| c.id().eq_ignore_ascii_case(s))
+    }
+
+    /// Stable machine id, as in the upstream presets ("BODY_CAM").
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::BodyCam => "BODY_CAM",
+            Self::Alpr => "ALPR",
+            Self::AudioSensor => "AUDIO_SENSOR",
+            Self::PublicSafety => "PUBLIC_SAFETY",
+            Self::Drone => "DRONE",
+            Self::Tracker => "TRACKER",
+            Self::Glasses => "GLASSES",
+            Self::NetworkCamera => "NETWORK_CAMERA",
+            Self::Custom => "CUSTOM",
+        }
     }
 
     pub fn tag(self) -> &'static str {

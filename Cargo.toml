@@ -6,16 +6,20 @@ license = "GPL-3.0-or-later"
 description = "Passive BLE/WiFi surveillance-equipment scanner for Raspberry Pi (Rust port of RF Sentinel)"
 
 [dependencies]
+axum = "0.8.9"
+futures = "0.3"
 indicatif = "0.18"
 regex = "1"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "process", "sync", "signal"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "process", "sync", "signal", "net"] }
+toml = "1.1.6"
+ureq = { version = "3.4.2", default-features = false, features = ["rustls"] }
 uuid = "1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 bluer = { version = "0.17", features = ["bluetoothd"] }
-futures = "0.3"
 
 [profile.release]
 strip = true

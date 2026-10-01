@@ -3,12 +3,13 @@
 //! and re-emitted as a full Advert on every change.
 
 use crate::detect::{now_ms, AddressType, Advert, Source};
+use crate::Input;
 use bluer::{AdapterEvent, Address, DeviceEvent, DeviceProperty, DiscoveryFilter, DiscoveryTransport};
 use futures::stream::{abortable, AbortHandle, SelectAll, StreamExt};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 
-pub async fn run(tx: mpsc::Sender<Advert>) -> bluer::Result<()> {
+pub async fn run(tx: mpsc::Sender<Input>) -> bluer::Result<()> {
     let session = bluer::Session::new().await?;
     let adapter = session.default_adapter().await?;
     adapter.set_powered(true).await?;
@@ -41,7 +42,7 @@ pub async fn run(tx: mpsc::Sender<Advert>) -> bluer::Result<()> {
                     let Ok(events) = dev.events().await else { continue };
                     let (events, handle) = abortable(events);
                     changes.push(events.map(move |e| (addr, e)));
-                    if a.rssi != i16::MIN && tx.send(a.clone()).await.is_err() {
+                    if a.rssi != i16::MIN && tx.send(Input::Advert(a.clone())).await.is_err() {
                         return Ok(());
                     }
                     devices.insert(addr, (a, handle));
@@ -57,7 +58,7 @@ pub async fn run(tx: mpsc::Sender<Advert>) -> bluer::Result<()> {
                 let Some((a, _)) = devices.get_mut(&addr) else { continue };
                 if apply(a, p) && a.rssi != i16::MIN {
                     a.timestamp = now_ms();
-                    if tx.send(a.clone()).await.is_err() {
+                    if tx.send(Input::Advert(a.clone())).await.is_err() {
                         return Ok(());
                     }
                 }

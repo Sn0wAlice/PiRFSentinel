@@ -138,30 +138,49 @@ pub struct Watchlist {
 }
 
 impl Watchlist {
-    /// Loads the named bundled presets; a later preset overrides an earlier one on the same key.
-    pub fn load(presets: &[&str]) -> Result<Self, String> {
-        let mut by_key: Vec<OuiEntry> = Vec::new();
+    /// Loads the named bundled presets plus the user's own entries (which win on
+    /// the same key). User entries must be valid: a typo is an error, not a silent skip.
+    pub fn load(presets: &[&str], custom: &[OuiEntry]) -> Result<Self, String> {
+        let mut entries: Vec<OuiEntry> = Vec::new();
         for name in presets {
             let json = PRESETS.iter().find(|(n, _)| n == name).ok_or(format!("unknown preset {name}"))?.1;
-            let entries: Vec<OuiEntry> = serde_json::from_str(json).map_err(|e| format!("{name}: {e}"))?;
-            for mut e in entries {
-                let Some(k) = normalize_key(&e.prefix) else { continue };
-                e.prefix = k;
-                by_key.retain(|o| o.prefix != e.prefix);
-                by_key.push(e);
-            }
+            let list: Vec<OuiEntry> = serde_json::from_str(json).map_err(|e| format!("{name}: {e}"))?;
+            entries.extend(list.into_iter().filter_map(|mut e| {
+                e.prefix = normalize_key(&e.prefix)?;
+                Some(e)
+            }));
         }
+        for e in custom {
+            let prefix = normalize_key(&e.prefix).ok_or(format!("watch: invalid key \"{}\"", e.prefix))?;
+            let label = if e.label.is_empty() { prefix.clone() } else { e.label.clone() };
+            entries.push(OuiEntry { prefix, label, confidence: "custom".into(), ..e.clone() });
+        }
+        Ok(Self::build(entries))
+    }
+
+    /// A whitelist: same keys as the watchlist, no scores.
+    pub fn whitelist(keys: &[String]) -> Result<Self, String> {
+        let entries = keys.iter().map(|k| {
+            let prefix = normalize_key(k).ok_or(format!("whitelist: invalid key \"{k}\""))?;
+            Ok(OuiEntry { prefix, label: "whitelisted".into(), source: String::new(), confidence: "custom".into(), score: None, category: None })
+        }).collect::<Result<Vec<_>, String>>()?;
+        Ok(Self::build(entries))
+    }
+
+    fn build(entries: Vec<OuiEntry>) -> Self {
         let mut w = Watchlist::default();
-        for e in by_key {
+        for e in entries {
             if e.prefix.starts_with("name:") {
+                w.name_rules.retain(|o| o.prefix != e.prefix);
                 w.name_rules.push(e);
             } else if e.prefix.starts_with("vendor:") {
+                w.vendor_rules.retain(|o| o.prefix != e.prefix);
                 w.vendor_rules.push(e);
             } else {
                 w.by_hex.insert(hex(&e.prefix), e);
             }
         }
-        Ok(w)
+        w
     }
 
     pub fn len(&self) -> usize {
@@ -221,13 +240,13 @@ mod tests {
                 assert!(normalize_key(&e.prefix).is_some(), "{name}: bad key {}", e.prefix);
             }
         }
-        assert!(Watchlist::load(&["global", "canada", "us"]).unwrap().len() > 50);
-        assert!(Watchlist::load(&["nope"]).is_err());
+        assert!(Watchlist::load(&["global", "canada", "us"], &[]).unwrap().len() > 50);
+        assert!(Watchlist::load(&["nope"], &[]).is_err());
     }
 
     #[test]
     fn watchlist_matches_most_specific_block() {
-        let w = Watchlist::load(&["global", "canada"]).unwrap();
+        let w = Watchlist::load(&["global", "canada"], &[]).unwrap();
         let axon = w.hits("00:25:DF:12:34:56", None, &[]);
         assert_eq!(axon[0].category, Category::BodyCam);
         assert_eq!(axon[0].confidence, 75);
@@ -236,5 +255,20 @@ mod tests {
         assert!(w.hits("8C:1F:64:DE:01:23", None, &[]).iter().all(|h| !h.label.to_lowercase().contains("cyberkar")));
         // Name rules are case-insensitive substrings.
         assert!(!w.hits("12:00:00:00:00:00", Some("getac bc-02 cam"), &[]).is_empty());
+    }
+
+    #[test]
+    fn custom_entries_and_whitelist() {
+        let mine: OuiEntry = serde_json::from_str(r#"{"prefix": "aa-bb-cc", "label": "mine"}"#).unwrap();
+        let w = Watchlist::load(&["global"], &[mine]).unwrap();
+        let h = &w.hits("AA:BB:CC:00:00:01", None, &[])[0];
+        assert_eq!((h.confidence, h.category, h.source.as_str()), (100, Category::Custom, "Your watchlist"));
+        let bad: OuiEntry = serde_json::from_str(r#"{"prefix": "AA:BB"}"#).unwrap();
+        assert!(Watchlist::load(&[], &[bad]).is_err());
+
+        let wl = Watchlist::whitelist(&["name:my airpods".into(), "11:22:33:44:55:66".into()]).unwrap();
+        assert!(!wl.hits("00:00:00:00:00:00", Some("Alice's My AirPods"), &[]).is_empty());
+        assert!(!wl.hits("11:22:33:44:55:66", None, &[]).is_empty());
+        assert!(Watchlist::whitelist(&["name:".into()]).is_err());
     }
 }

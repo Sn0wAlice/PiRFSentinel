@@ -1,0 +1,25 @@
+[Unit]
+Description=PiRFSentinel passive BLE/WiFi surveillance scanner
+Documentation=https://github.com/CIS-C0/RFSentinel
+After=bluetooth.target network.target
+Wants=bluetooth.target
+
+[Service]
+# Root: `iw scan` needs CAP_NET_ADMIN. The radios are only ever listened to.
+ExecStartPre=-/usr/sbin/rfkill unblock bluetooth
+# Change wlan0 here if you set another iface in the config.
+ExecStartPre=-/usr/sbin/ip link set wlan0 up
+ExecStart=/usr/local/bin/rfs --config /etc/pirfsentinel.toml
+Restart=on-failure
+RestartSec=5
+Environment=NO_COLOR=1
+StateDirectory=pirfsentinel
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+
+[Install]
+WantedBy=multi-user.target

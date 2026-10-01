@@ -17,10 +17,16 @@ const CLUSTER_EVERY_MS: i64 = 2_000;
 
 pub struct Track {
     pub mac: String,
+    /// Stable across address rotations: the first address of a linked chain.
+    pub device_id: String,
+    /// Latest raw observation.
+    pub advert: Advert,
     pub name: Option<String>,
     pub vendor: Option<String>,
-    pub rssi: i16,
-    pub ble: bool,
+    pub sightings: u64,
+    pub whitelisted: bool,
+    /// From the history database, when this device was seen in an earlier run.
+    pub first_seen_ever: Option<i64>,
     pub first_seen: i64,
     pub last_seen: i64,
     pub hits: Vec<Hit>,
@@ -55,14 +61,18 @@ impl Registry {
     }
 
     /// Records one observation. Returns true the first time the device is seen.
-    pub fn report(&mut self, a: &Advert, hits: &[Hit], vendor: Option<&str>, remote_id: Option<remote_id::Info>, now: i64) -> bool {
+    pub fn report(&mut self, a: &Advert, hits: &[Hit], vendor: Option<&str>, remote_id: Option<remote_id::Info>, whitelisted: bool, now: i64) -> bool {
         let first = !self.tracks.contains_key(&a.mac);
         if first {
             let t = self.new_track(a, now);
             self.tracks.insert(a.mac.clone(), t);
         }
         let t = self.tracks.get_mut(&a.mac).unwrap();
-        if let Some(r) = patrol::role_of(hits, vendor, a.name.as_deref()) {
+        // Devices you trust never make others look like a patrol car.
+        t.whitelisted = whitelisted;
+        if whitelisted {
+            t.role = None;
+        } else if let Some(r) = patrol::role_of(hits, vendor, a.name.as_deref()) {
             t.role = Some(r);
         }
         if let Some(n) = a.name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
@@ -71,8 +81,8 @@ impl Registry {
         if let Some(v) = vendor {
             t.vendor = Some(v.to_string());
         }
-        t.rssi = a.rssi;
-        t.ble = a.is_ble();
+        t.advert = a.clone();
+        t.sightings += 1;
         t.hits = merge_hits(t, hits, now);
         if remote_id.is_some() {
             t.remote_id = remote_id;
@@ -92,7 +102,8 @@ impl Registry {
     fn new_track(&self, a: &Advert, now: i64) -> Track {
         let fp = fusion::fingerprint(a);
         let mut t = Track {
-            mac: a.mac.clone(), name: None, vendor: None, rssi: a.rssi, ble: a.is_ble(), first_seen: now, last_seen: now, hits: Vec::new(), remote_id: None,
+            mac: a.mac.clone(), device_id: a.mac.clone(), advert: a.clone(), name: None, vendor: None, sightings: 0,
+            whitelisted: false, first_seen_ever: None, first_seen: now, last_seen: now, hits: Vec::new(), remote_id: None,
             history: VecDeque::new(), fingerprint: fp.clone(), role: None, linked_from: None, inherited: Vec::new(), held: None,
         };
         if fp.is_none() || !fusion::may_rotate(a) {
@@ -110,6 +121,7 @@ impl Registry {
             ..h.clone()
         }).collect();
         t.linked_from = Some(prev.mac.clone());
+        t.device_id = prev.device_id.clone();
         t.name = prev.name.clone();
         t.role = prev.role.clone();
         t
@@ -138,8 +150,14 @@ impl Registry {
         patrol::hit_for(mac, &self.groups.1)
     }
 
-    pub fn prune(&mut self, now: i64) {
-        self.tracks.retain(|_, t| now - t.last_seen <= PRUNE_AFTER_MS);
+    pub fn get_mut(&mut self, mac: &str) -> Option<&mut Track> {
+        self.tracks.get_mut(mac)
+    }
+
+    /// Drops devices not heard for PRUNE_AFTER_MS and returns them.
+    pub fn prune(&mut self, now: i64) -> Vec<Track> {
+        let lost: Vec<String> = self.tracks.values().filter(|t| now - t.last_seen > PRUNE_AFTER_MS).map(|t| t.mac.clone()).collect();
+        lost.iter().filter_map(|m| self.tracks.remove(m)).collect()
     }
 }
 
@@ -188,27 +206,31 @@ mod tests {
         let mut r = Registry::default();
         let a = axon("5A:00:00:00:00:01");
         let h = Hit::new(Category::BodyCam, "cam", 90, "", "");
-        r.report(&a, &[h], None, None, 0);
-        r.report(&a, &[], None, None, 60_000);
+        r.report(&a, &[h], None, None, false, 0);
+        r.report(&a, &[], None, None, false, 60_000);
         assert_eq!(r.get(&a.mac).unwrap().hits.len(), 1);
-        r.report(&a, &[], None, None, 121_000);
+        r.report(&a, &[], None, None, false, 121_000);
         assert!(r.get(&a.mac).unwrap().hits.is_empty());
+        assert!(r.prune(200_000).is_empty());
+        assert_eq!(r.prune(400_000).len(), 1);
+        assert_eq!(r.len(), 0);
     }
 
     #[test]
     fn links_rotated_address_once() {
         let mut r = Registry::default();
         let h = Hit::new(Category::BodyCam, "cam", 60, "uuid", "");
-        r.report(&axon("5A:00:00:00:00:01"), &[h], None, None, 0);
-        r.report(&axon("4B:00:00:00:00:02"), &[], None, None, 5_000);
+        r.report(&axon("5A:00:00:00:00:01"), &[h], None, None, false, 0);
+        r.report(&axon("4B:00:00:00:00:02"), &[], None, None, false, 5_000);
         let t = r.get("4B:00:00:00:00:02").unwrap();
         assert_eq!(t.linked_from.as_deref(), Some("5A:00:00:00:00:01"));
         assert_eq!(r.inherited_hits("4B:00:00:00:00:02")[0].confidence, 55);
+        assert_eq!(t.device_id, "5A:00:00:00:00:01");
         // Two identical silent candidates: no link.
         let mut r2 = Registry::default();
-        r2.report(&axon("5A:00:00:00:00:01"), &[], None, None, 0);
-        r2.report(&axon("5A:00:00:00:00:03"), &[], None, None, 0);
-        r2.report(&axon("4B:00:00:00:00:02"), &[], None, None, 5_000);
+        r2.report(&axon("5A:00:00:00:00:01"), &[], None, None, false, 0);
+        r2.report(&axon("5A:00:00:00:00:03"), &[], None, None, false, 0);
+        r2.report(&axon("4B:00:00:00:00:02"), &[], None, None, false, 5_000);
         assert!(r2.get("4B:00:00:00:00:02").unwrap().linked_from.is_none());
     }
 }
