@@ -108,7 +108,8 @@ fn decode_basic_id(b: &[u8], off: usize, info: Info) -> Info {
 fn decode_location(b: &[u8], off: usize, info: Info) -> Info {
     let flags = b[off + 1];
     let speed_enc = b[off + 3] as f64;
-    let v_speed_enc = b[off + 4] as i8;
+    let raw: &[u8; MESSAGE_SIZE] = b[off..off + MESSAGE_SIZE].try_into().unwrap();
+    let v_speed = remoteid::Location::decode(raw).ok().and_then(|l| l.speed_vertical);
     let (lat, lon) = (i32le(b, off + 5), i32le(b, off + 9));
     let direction = b[off + 2] as i32 + if (flags >> 1) & 1 == 1 { 180 } else { 0 };
     let speed = match (b[off + 3], flags & 1) {
@@ -123,7 +124,7 @@ fn decode_location(b: &[u8], off: usize, info: Info) -> Info {
         altitude_geo_m: altitude(u16le(b, off + 15)).or(info.altitude_geo_m),
         height_m: altitude(u16le(b, off + 17)).or(info.height_m),
         speed_ms: speed.or(info.speed_ms),
-        vertical_speed_ms: if v_speed_enc == 63 { info.vertical_speed_ms } else { Some(v_speed_enc as f64 * 0.5) },
+        vertical_speed_ms: v_speed.map(f64::from).or(info.vertical_speed_ms),
         direction_deg: if (0..=359).contains(&direction) { Some(direction) } else { info.direction_deg },
         ..info
     }
@@ -194,5 +195,18 @@ mod tests {
         assert_eq!(decode_wifi_ie(&ie[..6], None), None);
         assert_eq!(decode_wifi_ie(&ie[..12], None), Some(Info::default()));
         assert_eq!(decode_ble(&[0x0D, 0, 0xF0], None), None);
+    }
+
+    #[test]
+    fn vertical_speed_unknown_is_encoded_126() {
+        let mut loc = vec![0u8; 27];
+        loc[0] = 0x0D;
+        loc[2] = 0x12;
+        loc[6] = 126; // 63 m/s = "unknown"
+        assert_eq!(decode_ble(&loc, None).unwrap().vertical_speed_ms, None);
+        loc[6] = 63; // real 31.5 m/s climb
+        assert_eq!(decode_ble(&loc, None).unwrap().vertical_speed_ms, Some(31.5));
+        loc[6] = (-4i8) as u8;
+        assert_eq!(decode_ble(&loc, None).unwrap().vertical_speed_ms, Some(-2.0));
     }
 }
