@@ -10,6 +10,7 @@ axum = "0.8.9"
 futures = "0.3"
 indicatif = "0.18"
 regex = "1"
+remoteid = "0.3.2"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
